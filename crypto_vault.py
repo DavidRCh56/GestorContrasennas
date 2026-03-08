@@ -1,7 +1,8 @@
 """
 ╔══════════════════════════════════════════════════════════════╗
-║  MÓDULO DE SEGURIDAD - CryptoVault                          ║
-║  Cifrado AES-256-GCM + PBKDF2-HMAC-SHA256                  ║
+║  MÓDULO DE SEGURIDAD - CryptoVault v3.0                      ║
+║  Cifrado AES-256-GCM + PBKDF2-HMAC-SHA256                   ║
+║  + Categorías + Export/Import + Estadísticas                 ║
 ╚══════════════════════════════════════════════════════════════╝
 """
 
@@ -24,6 +25,21 @@ SALT_SIZE = 32               # 256 bits
 NONCE_SIZE = 12              # 96 bits (estándar AES-GCM)
 KEY_SIZE = 32                # 256 bits (AES-256)
 VAULT_VERSION = 1
+
+# Categorías predefinidas
+CATEGORIES = [
+    "🌐 Social",
+    "🏦 Banco",
+    "💼 Trabajo",
+    "📧 Email",
+    "🎮 Gaming",
+    "🛒 Compras",
+    "📱 Apps",
+    "🔧 Desarrollo",
+    "📚 Educación",
+    "🏥 Salud",
+    "📁 Otros",
+]
 
 
 class CryptoVault:
@@ -172,6 +188,12 @@ class CryptoVault:
             # Descifrar
             plaintext = self._decrypt(nonce, ciphertext, key)
             self._credentials = json.loads(plaintext.decode("utf-8"))
+            
+            # Migrar credenciales antiguas (añadir campo category si no existe)
+            for cred in self._credentials:
+                if "category" not in cred:
+                    cred["category"] = "📁 Otros"
+            
             self._derived_key = key
 
             logger.info(f"Bóveda desbloqueada: {len(self._credentials)} credenciales cargadas ✓")
@@ -193,7 +215,8 @@ class CryptoVault:
 
     # ── CRUD de credenciales ──
 
-    def add_credential(self, title: str, site: str, email: str, password: str, notes: str = "") -> dict:
+    def add_credential(self, title: str, site: str, email: str, password: str,
+                       notes: str = "", category: str = "📁 Otros") -> dict:
         """Añade una credencial y guarda la bóveda."""
         if not self.is_unlocked:
             raise RuntimeError("La bóveda debe estar desbloqueada.")
@@ -205,13 +228,14 @@ class CryptoVault:
             "email": email,
             "password": password,
             "notes": notes,
+            "category": category,
             "created_at": datetime.now().isoformat(),
             "modified_at": datetime.now().isoformat(),
         }
 
         self._credentials.append(credential)
         self._save()
-        logger.info(f"Credencial añadida: '{title}' (ID: {credential['id']}) ✓")
+        logger.info(f"Credencial añadida: '{title}' [{category}] (ID: {credential['id']}) ✓")
         return credential
 
     def update_credential(self, cred_id: str, **kwargs) -> bool:
@@ -221,7 +245,7 @@ class CryptoVault:
 
         for cred in self._credentials:
             if cred["id"] == cred_id:
-                for key in ("title", "site", "email", "password", "notes"):
+                for key in ("title", "site", "email", "password", "notes", "category"):
                     if key in kwargs:
                         cred[key] = kwargs[key]
                 cred["modified_at"] = datetime.now().isoformat()
@@ -247,6 +271,140 @@ class CryptoVault:
 
         logger.warning(f"Credencial {cred_id} no encontrada para eliminar")
         return False
+
+    # ── Estadísticas ──
+
+    def get_statistics(self) -> dict:
+        """Retorna estadísticas de la bóveda."""
+        if not self.is_unlocked:
+            return {"total": 0, "weak_passwords": 0, "categories": {}}
+
+        total = len(self._credentials)
+        
+        # Contraseñas débiles (< 10 caracteres o sin variedad)
+        weak = 0
+        for cred in self._credentials:
+            pw = cred.get("password", "")
+            if len(pw) < 10:
+                weak += 1
+            elif pw.isalpha() or pw.isdigit():
+                weak += 1
+        
+        # Conteo por categorías
+        cat_counts = {}
+        for cred in self._credentials:
+            cat = cred.get("category", "📁 Otros")
+            cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+        # Última modificación
+        last_modified = None
+        for cred in self._credentials:
+            mod = cred.get("modified_at")
+            if mod and (last_modified is None or mod > last_modified):
+                last_modified = mod
+
+        return {
+            "total": total,
+            "weak_passwords": weak,
+            "categories": cat_counts,
+            "last_modified": last_modified,
+        }
+
+    # ── Export / Import cifrados ──
+
+    def export_encrypted(self, export_path: str, export_password: str) -> bool:
+        """Exporta las credenciales a un archivo cifrado independiente."""
+        if not self.is_unlocked:
+            raise RuntimeError("La bóveda debe estar desbloqueada.")
+
+        logger.info(f"Exportando {len(self._credentials)} credenciales...")
+
+        try:
+            salt = secrets.token_bytes(SALT_SIZE)
+            key = self._derive_key(export_password, salt)
+
+            export_data = {
+                "version": VAULT_VERSION,
+                "exported_at": datetime.now().isoformat(),
+                "credentials": self._credentials,
+            }
+            plaintext = json.dumps(export_data).encode("utf-8")
+            nonce, ciphertext = self._encrypt(plaintext, key)
+
+            with open(export_path, "wb") as f:
+                f.write(b"PMEX")  # Magic bytes for Password Manager Export
+                f.write(VAULT_VERSION.to_bytes(1, "big"))
+                f.write(salt)
+                f.write(nonce)
+                f.write(ciphertext)
+
+            logger.info(f"Exportación completada: {export_path} ✓")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error exportando: {e}", exc_info=True)
+            raise
+
+    def import_encrypted(self, import_path: str, import_password: str,
+                         merge: bool = True) -> int:
+        """
+        Importa credenciales desde un archivo cifrado.
+        
+        Args:
+            import_path: Ruta del archivo a importar
+            import_password: Contraseña del archivo de exportación
+            merge: Si True, añade las credenciales. Si False, reemplaza todas.
+        
+        Returns:
+            Número de credenciales importadas.
+        """
+        if not self.is_unlocked:
+            raise RuntimeError("La bóveda debe estar desbloqueada.")
+
+        logger.info(f"Importando credenciales desde {import_path}...")
+
+        try:
+            with open(import_path, "rb") as f:
+                data = f.read()
+
+            # Verificar magic bytes
+            if data[:4] != b"PMEX":
+                raise ValueError("El archivo no es una exportación válida del gestor.")
+
+            version = data[4]
+            offset = 5
+            salt = data[offset:offset + SALT_SIZE]
+            offset += SALT_SIZE
+            nonce = data[offset:offset + NONCE_SIZE]
+            offset += NONCE_SIZE
+            ciphertext = data[offset:]
+
+            key = self._derive_key(import_password, salt)
+            plaintext = self._decrypt(nonce, ciphertext, key)
+            export_data = json.loads(plaintext.decode("utf-8"))
+
+            imported_creds = export_data.get("credentials", [])
+            
+            if not merge:
+                self._credentials = []
+
+            # Importar con nuevos IDs para evitar conflictos
+            count = 0
+            for cred in imported_creds:
+                cred["id"] = secrets.token_hex(8)  # Nuevo ID
+                cred["modified_at"] = datetime.now().isoformat()
+                if "category" not in cred:
+                    cred["category"] = "📁 Otros"
+                self._credentials.append(cred)
+                count += 1
+
+            self._save()
+            logger.info(f"Importación completada: {count} credenciales ✓")
+            return count
+
+        except Exception as e:
+            logger.error(f"Error importando: {e}", exc_info=True)
+            raise
 
     # ── Persistencia ──
 

@@ -32,6 +32,9 @@ def main():
         "--name", "GestorContraseñas",  # Nombre del .exe
         "--add-data", f"{os.path.join(script_dir, 'crypto_vault.py')};.",
         "--add-data", f"{os.path.join(script_dir, 'password_engine.py')};.",
+        "--add-data", f"{os.path.join(script_dir, 'ui_engine.py')};.",
+        "--add-data", f"{os.path.join(script_dir, 'icon.png')};.",
+        "--icon", os.path.join(script_dir, "icon.ico"),
         "--hidden-import", "cryptography",
         "--hidden-import", "cryptography.hazmat.primitives.ciphers.aead",
         "--hidden-import", "cryptography.hazmat.primitives.kdf.pbkdf2",

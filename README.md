@@ -1,6 +1,6 @@
-# 🔐 Gestor de Contraseñas Seguro v2.0
+# 🔐 Gestor de Contraseñas Seguro v3.0
 
-Aplicación de escritorio para **generar y gestionar contraseñas** con cifrado AES-256-GCM, protección anti-captura de pantalla y bóveda cifrada con contraseña maestra.
+Aplicación de escritorio para **generar y gestionar contraseñas** con cifrado AES-256-GCM, protección anti-captura de pantalla, bóveda cifrada con contraseña maestra, y UI moderna con animaciones dinámicas.
 
 ---
 
@@ -14,8 +14,6 @@ Descarga **`GestorContraseñas.exe`** de la carpeta `dist/` y ejecútalo directa
 dist/
 └── GestorContraseñas.exe   ← Doble clic para ejecutar
 ```
-
-> El archivo `vault.enc` (tu bóveda cifrada) y la carpeta `logs/` se crearán automáticamente junto al .exe.
 
 ### Opción 2: Desde el código fuente
 
@@ -36,13 +34,56 @@ Se generará `dist/GestorContraseñas.exe` (~13 MB). Puedes copiarlo a cualquier
 
 ---
 
+## 💾 Almacenamiento de Datos del .exe
+
+> **¿Dónde guarda los datos el `.exe` cuando lo ejecutas?**
+
+### Archivos que se crean
+
+| Archivo | Descripción | Ubicación |
+|---|---|---|
+| `vault.enc` | Tu bóveda cifrada con todas las contraseñas | `%LOCALAPPDATA%\GestorContraseñas\` |
+| `logs/` | Carpeta con logs de ejecución | `%LOCALAPPDATA%\GestorContraseñas\logs\` |
+
+La ruta completa típica es: `C:\Users\TU_USUARIO\AppData\Local\GestorContraseñas\`
+
+### ¿Cómo funciona?
+
+1. **Primera ejecución**: Al abrir el `.exe` por primera vez, te pedirá crear una **contraseña maestra**. Se crea la carpeta `GestorContraseñas` en AppData con `vault.enc` dentro.
+
+2. **Ejecuciones siguientes**: El `.exe` busca `vault.enc` en AppData para cargar tus contraseñas. Solo necesitas tu contraseña maestra.
+
+3. **Portabilidad**: Puedes mover el `.exe` a cualquier carpeta o USB. Tus datos están seguros en AppData y se cargan desde cualquier ubicación del `.exe`.
+
+4. **Migración automática**: Si tienes un `vault.enc` antiguo junto al `.exe` (versión anterior), se moverá automáticamente a la nueva ubicación en AppData.
+
+5. **Protección de datos**: La carpeta de datos tiene atributos **oculta + sistema** para evitar borrado accidental. Solo se puede eliminar desde la propia app (pestaña 🛡️ Seguridad → Eliminar Datos) o manualmente con permisos de administrador.
+
+6. **Desinstalar la app**: Desde la pestaña 🛡️ Seguridad puedes eliminar **todos** los datos (triple confirmación). Luego solo borras el `.exe`. No quedan archivos residuales.
+
+### ¿Se conecta a internet?
+
+El `.exe` funciona **100% offline** excepto por funciones opcionales:
+- **🛡️ Verificar HIBP**: Consulta la API de [Have I Been Pwned](https://haveibeenpwned.com/) para comprobar si tu contraseña ha sido filtrada. Envía solo los **primeros 5 caracteres del hash SHA-1**, nunca la contraseña completa. Es **opcional**.
+- **📊 Auditoría de bóveda**: Comprueba todas tus contraseñas guardadas contra HIBP. También opcional.
+
+### ¿Qué NO hace?
+
+- ❌ NO envía datos a servidores (excepto HIBP si lo activas)
+- ❌ NO escribe en el registro de Windows
+- ❌ NO requiere permisos de administrador
+- ❌ NO deja rastro si usas la función de desinstalación
+
+---
+
 ## 📋 Estructura del Proyecto
 
 ```
 📁 Código fuente (open source)
 ├── generador_contraseñas.py   # App principal (GUI con pestañas)
-├── password_engine.py         # Motor de generación de contraseñas
-├── crypto_vault.py            # Cifrado AES-256-GCM y bóveda
+├── password_engine.py         # Motor de generación + passphrases + HIBP
+├── crypto_vault.py            # Cifrado AES-256-GCM, categorías, export/import
+├── ui_engine.py               # Motor de UI: animaciones, toasts, tooltips
 ├── build_exe.py               # Script para compilar como .exe
 └── README.md
 
@@ -57,12 +98,20 @@ Se generará `dist/GestorContraseñas.exe` (~13 MB). Puedes copiarlo a cualquier
 
 ## ⚡ Pestaña: Generador
 
+### Modo Contraseña
 - **Longitud** ajustable (4–256) con slider o entrada manual
 - **Tipos de caracteres**: minúsculas, mayúsculas, dígitos, símbolos personalizables
 - **Triple aleatoriedad**: `secrets` (CSPRNG) + Fisher-Yates ×7 + intercambios extra
-- **Indicador de fortaleza** con entropía en bits + barra visual
+- **Indicador de fortaleza** con entropía en bits + barra visual animada
 - **📋 Copiar** al portapapeles
-- **💾 Guardar en Bóveda** — con nombre personalizado, URL y email
+- **💾 Guardar en Bóveda** — con nombre, categoría, URL y email
+- **🛡️ Verificar HIBP** — comprueba si la contraseña ha sido filtrada
+
+### Modo Passphrase
+- Genera frases tipo **Diceware** con palabras en español
+- Configurable: número de palabras (3–10), separador, capitalización, número al final
+- Diccionario de ~180 palabras en español
+- Ejemplo: `tigre-luna-bosque-coral-42`
 
 ---
 
@@ -74,19 +123,38 @@ Crea una **contraseña maestra** (mín. 8 caracteres).
 
 ### Gestión de credenciales
 Cada entrada tiene:
-- **🌐 Nombre** personalizado (ej: "GitHub", "Mi Banco")
+- **�️ Categoría** (Social, Banco, Trabajo, Email, Gaming, Compras, etc.)
+- **�🌐 Nombre** personalizado (ej: "GitHub", "Mi Banco")
 - **🔗 URL** del sitio web
 - **📧 Email/usuario** — con botón copiar
 - **🔑 Contraseña** oculta — 👁 para revelar 5 seg, 📋 para copiar
 
-### Acciones
-| Botón | Acción |
+### Funcionalidades
+| Función | Descripción |
 |---|---|
-| **🚀 Quick Login** | Abre la web + copia email → 4 seg después copia contraseña |
-| **✏️ Editar** | Modifica nombre, URL, email, contraseña, notas |
+| **🔍 Búsqueda** | Filtra credenciales en tiempo real por nombre, URL o email |
+| **🏷️ Filtro por categoría** | Filtra por Social, Banco, Trabajo, etc. |
+| **� Estadísticas** | Total de credenciales y contraseñas débiles detectadas |
+| **�🚀 Quick Login** | Abre la web + copia email → 4 seg después copia contraseña |
+| **✏️ Editar** | Modifica todos los campos incluida la categoría |
 | **🗑 Eliminar** | Elimina credencial (con confirmación) |
-| **➕ Añadir** | Nueva credencial manual |
-| **🔒 Bloquear** | Cierra la bóveda |
+| **➕ Añadir** | Nueva credencial manual con categoría |
+| **📤 Exportar** | Exporta credenciales cifradas a un archivo `.pmex` |
+| **📥 Importar** | Importa credenciales desde un archivo `.pmex` |
+| **⏰ Auto-bloqueo** | Se bloquea tras 5 min de inactividad |
+| **🔒 Bloquear** | Cierra la bóveda manualmente |
+
+---
+
+## 🎨 Interfaz Moderna
+
+- **Paleta oscura sofisticada** con gradientes morado-azul
+- **Animaciones dinámicas**: barras de progreso animadas, pulsos de color, fade-in
+- **Toast notifications** elegantes en vez de ventanas modales
+- **Efectos hover** con glow y cambio de borde en cards y botones
+- **Tooltips** informativos en los botones
+- **Focus glow** en los campos de entrada
+- **Transiciones suaves** de color con smoothstep
 
 ---
 
@@ -108,6 +176,8 @@ Cada entrada tiene:
 - ✅ **Anti timing attacks** — `secrets.compare_digest()` para comparar hashes
 - ✅ **Limpieza de memoria** — datos se borran de la RAM al bloquear la bóveda
 - ✅ **Archivo indescifrable** — `vault.enc` es binario cifrado, inútil sin la contraseña
+- ✅ **Auto-bloqueo** — la bóveda se bloquea tras 5 minutos de inactividad
+- ✅ **HIBP k-Anonymity** — nunca envía tu contraseña completa, solo 5 chars del hash
 
 ---
 
@@ -116,7 +186,6 @@ Cada entrada tiene:
 ### 1. Verificar que el vault está cifrado
 ```bash
 # Abre vault.enc con un editor de texto → verás datos binarios ilegibles
-# Si ves texto legible como emails o contraseñas, algo está MAL
 notepad vault.enc
 ```
 
@@ -133,7 +202,6 @@ notepad vault.enc
 
 ### 4. Verificar que los logs no filtran datos
 ```bash
-# Busca tus contraseñas o emails en los logs — NO deben aparecer
 findstr /i "tu_email@example.com" logs\*.log
 findstr /i "tu_contraseña" logs\*.log
 ```
@@ -146,9 +214,10 @@ findstr /i "tu_contraseña" logs\*.log
 
 ### 6. Revisar el código fuente
 Todo el código es **open source** en este repositorio:
-- `crypto_vault.py` — revisa el cifrado y la derivación de clave
-- `password_engine.py` — revisa la generación de contraseñas
-- `generador_contraseñas.py` — revisa la interfaz y protección anti-captura
+- `crypto_vault.py` — cifrado, categorías, export/import
+- `password_engine.py` — generación de contraseñas y passphrases
+- `ui_engine.py` — motor de animaciones y estilos
+- `generador_contraseñas.py` — interfaz y lógica principal
 
 ---
 
@@ -164,9 +233,10 @@ Se guardan en `logs/` con un archivo por ejecución (`pm_YYYYMMDD_HHMMSS.log`). 
 ## ⚠️ Importante
 
 - **No olvides tu contraseña maestra** — no hay forma de recuperarla
-- **Haz backup** de `vault.enc` periódicamente
+- **Haz backup** de `vault.enc` periódicamente (o usa 📤 Exportar)
 - **No subas** `vault.enc` a GitHub (ya está en `.gitignore`)
 - La protección anti-captura no es infalible ante software de muy bajo nivel
+- El auto-bloqueo se activa tras 5 minutos de inactividad
 
 ---
 

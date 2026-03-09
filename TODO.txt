@@ -1,0 +1,1 @@
+tienes que añadir la opcion para poder borrar las carpetas que crea la aplicacion desde la misma aplicacion pidiendo varias verificaciones y confimaciones antes de hacerlo, a demas piensa en mejoras para la app tanto de utilidades como de seguridad
